@@ -65,20 +65,42 @@ tar -xzf "$TMP/$FILE" -C "$TMP"
 chmod +x "$TMP/$BIN"
 
 # ------------------------------------------------------------------- install
-# Somewhere already on PATH, preferring a place that needs no password.
-for dir in "$HOME/.local/bin" /usr/local/bin; do
-  case ":$PATH:" in *":$dir:"*) TARGET="$dir"; break ;; esac
+# Prefer somewhere already on PATH that this user can write to: asking for a
+# password to install a single binary into a personal machine is a poor trade.
+TARGET=""
+for dir in "$HOME/.local/bin" "$HOME/bin" /usr/local/bin; do
+  case ":$PATH:" in
+    *":$dir:"*) [ -w "$dir" ] && { TARGET="$dir"; break; } ;;
+  esac
 done
-TARGET="${TARGET:-/usr/local/bin}"
 
-if [ -w "$TARGET" ]; then
-  mv "$TMP/$BIN" "$TARGET/$BIN"
-else
+# Nothing writable on PATH. ~/.local/bin is the conventional home for this, so
+# make it — and say plainly that it needs adding to PATH, rather than leaving a
+# binary the shell cannot find.
+NEEDS_PATH=""
+if [ -z "$TARGET" ] && [ -d "$HOME/.local" ] || [ -z "$TARGET" ]; then
+  mkdir -p "$HOME/.local/bin" 2>/dev/null || true
+  if [ -w "$HOME/.local/bin" ]; then
+    TARGET="$HOME/.local/bin"
+    case ":$PATH:" in *":$TARGET:"*) ;; *) NEEDS_PATH=1 ;; esac
+  fi
+fi
+
+if [ -z "$TARGET" ]; then
+  TARGET=/usr/local/bin
   say "$TARGET needs a password"
   sudo mv "$TMP/$BIN" "$TARGET/$BIN"
+else
+  mv "$TMP/$BIN" "$TARGET/$BIN"
 fi
 
 say "installed $TARGET/$BIN"
+
+if [ -n "$NEEDS_PATH" ]; then
+  printf '\n'
+  say "$TARGET is not on your PATH yet. Add it:"
+  say "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc && exec zsh"
+fi
 "$TARGET/$BIN" --version 2>/dev/null || true
 
 printf '\n'
